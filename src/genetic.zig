@@ -173,13 +173,13 @@ fn agg_aux(
     var new_fitnesses: [N_POPULATION]f64 = undefined;
 
     // Initial population
-    for (&population, &fitnesses) |*element, *fitness| {
+    for (&population) |*element| {
         element.* = try utils.createRandomSolution(n, allocator, rnd);
-        fitness.* = utils.getFitness(element.*, training_set, training_set);
     }
+    utils.getFitnesses(&population, training_set, &fitnesses);
     // TODO defer
 
-    var evaluations: usize = 0;
+    var evaluations: usize = population.len; // we have already done one round of evaluations
     while (evaluations < 15000) : (evaluations += new_population.len) {
         // Seleccion
         for (&new_population) |*element| {
@@ -206,28 +206,24 @@ fn agg_aux(
         }
 
         // Reemplazamiento
+        utils.getFitnesses(&new_population, training_set, &new_fitnesses);
         var new_min_fitness_idx: usize = 0;
         var old_max_fitness_idx: usize = 0;
-        for (new_population, &new_fitnesses, fitnesses, 0..) |new_element, *new_fitness, fitness, i| {
-            new_fitness.* = utils.getFitness(new_element, training_set, training_set);
-            if (new_fitness.* < new_fitnesses[new_min_fitness_idx])
+        for (new_fitnesses, fitnesses, 0..) |new_fitness, fitness, i| {
+            if (new_fitness < new_fitnesses[new_min_fitness_idx])
                 new_min_fitness_idx = i;
-
             if (fitness > fitnesses[old_max_fitness_idx])
                 old_max_fitness_idx = i;
         }
 
         new_population[new_min_fitness_idx] = population[old_max_fitness_idx];
         new_fitnesses[new_min_fitness_idx] = fitnesses[old_max_fitness_idx];
+        // TODO think about avoiding this copy, just using two buffers and
+        // choosing one or another.
         std.mem.copy([]f64, &population, &new_population);
         std.mem.copy(f64, &fitnesses, &new_fitnesses);
     }
 
-    var max_fitness_idx: usize = 0;
-    for (fitnesses, 0..) |fitness, i| {
-        if (fitness > fitnesses[max_fitness_idx])
-            max_fitness_idx = i;
-    }
-
+    const max_fitness_idx = std.mem.indexOfMax(f64, &fitnesses);
     return population[max_fitness_idx];
 }

@@ -1,7 +1,8 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 const ref_algorithms = @import("ref_algorithms.zig");
-const busquedaLocal = @import("bl.zig").busquedaLocal;
+const busquedaLocalP1 = @import("bl.zig").busquedaLocalP1;
+const genetic = @import("genetic.zig");
 const Random = std.rand.Random;
 const Allocator = std.mem.Allocator;
 const Example = utils.Example;
@@ -97,6 +98,9 @@ pub fn main() !void {
     var rng = std.rand.DefaultPrng.init(rng_seed);
     const rnd = rng.random();
 
+    try utils.initThreadPool(allocator);
+    defer utils.deinitThreadPool();
+
     const partitions = try utils.readPartitions(args.dataset.?, allocator);
     defer for (partitions) |partition| {
         for (partition) |example| {
@@ -110,6 +114,7 @@ pub fn main() !void {
         // .{ .func = ref_algorithms.greedy, .name = "GREEDY" },
         // .{ .func = ref_algorithms.algOriginal1NN, .name = "1NN" },
         .{ .func = genetic.AGG_BLX, .name = "AGG BLX" },
+        .{ .func = genetic.AGG_Arit, .name = "AGG Arit" },
     };
 
     for (algorithms) |algorithm| {
@@ -133,7 +138,6 @@ pub fn main() !void {
                 fitness,
                 @intToFloat(f64, time) / 1000,
             });
-            std.process.exit(1);
         }
 
         print("\n", .{});

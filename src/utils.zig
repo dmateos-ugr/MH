@@ -197,7 +197,7 @@ pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []con
 
 pub fn tasaClas(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
     // This is a pointer and length comparison. Doesn't work if test_set is a
-	// *copy* of training_set, instead of the same slice, but works for now.
+    // *copy* of training_set, instead of the same slice, but works for now.
     const leave_one_out = std.meta.eql(test_set, training_set);
 
     // Classify every example in test_set using training_set and weights w
@@ -222,79 +222,58 @@ pub fn tasaRed(weights: []const f64) f64 {
     return 100.0 * @intToFloat(f64, discarded) / @intToFloat(f64, weights.len);
 }
 
-const N_THREADS = 8;
 var g_thread_pool: std.Thread.Pool = undefined;
 
 pub fn initThreadPool(allocator: Allocator) !void {
     try g_thread_pool.init(.{
         .allocator = allocator,
-        .n_jobs = N_THREADS,
+        .n_jobs = null,
     });
+    print("Numero de threads: {}\n", .{g_thread_pool.threads.len});
 }
 
 pub fn deinitThreadPool() void {
     g_thread_pool.deinit();
 }
 
-
-fn classifier1NN2(e: Example, set: []const Example, skip_idx: ?usize, w: []const f64) []const u8 {
-    var results_idx: [N_THREADS]usize = undefined;
-    var results_dist: [N_THREADS]f64 = undefined;
-
+pub fn getFitnesses(
+    solutions: [][]const f64,
+    training_set: []const Example,
+    fitnesses: []f64,
+) void {
+    const n_threads = g_thread_pool.threads.len;
     var wait_group = std.Thread.WaitGroup{};
-
-    const size = set.len / N_THREADS;
-    for (0..N_THREADS) |i| {
+    const size = solutions.len / n_threads;
+    for (0..n_threads) |i| {
         const start_idx = size * i;
-        const end_idx = std.math.min(size * (i + 1), set.len);
+        const end_idx = std.math.min(size * (i + 1), solutions.len);
         // print("thread {}: {}-{}\n", .{i, start_idx, end_idx});
 
         wait_group.start();
         g_thread_pool.spawn(worker, .{
-            e,
-            set,
-            skip_idx,
-            w,
+            solutions,
+            training_set,
+            fitnesses,
             start_idx,
             end_idx,
-            &results_idx[i],
-            &results_dist[i],
             &wait_group,
         }) catch unreachable;
     }
     g_thread_pool.waitAndWork(&wait_group);
-
-    const thread_idx_min = std.mem.indexOfMin(f64, &results_dist);
-    const set_idx_min = results_idx[thread_idx_min];
-    return set[set_idx_min].class;
 }
 
-// TODO
 fn worker(
-    e: Example,
-    set: []const Example,
-    skip_idx: ?usize,
-    w: []const f64,
+    solutions: [][]const f64,
+    training_set: []const Example,
+    fitnesses: []f64,
     start_idx: usize,
     end_idx: usize,
-    result_idx_ptr: *usize,
-    result_dist_ptr: *f64,
-    wait_group: *std.Thread.WaitGroup
+    waiting_group: *std.Thread.WaitGroup,
 ) void {
-    var idx_min: usize = undefined;
-    var dist_min = std.math.floatMax(f64);
-    for (set[start_idx..end_idx], start_idx..end_idx) |example, i| {
-        if (skip_idx == i)
-            continue;
-        const dist = e.distanceWeighted(example, w);
-        if (dist < dist_min) {
-            dist_min = dist;
-            idx_min = i;
-        }
+    for (solutions[start_idx..end_idx], fitnesses[start_idx..end_idx]) |w, *fitness| {
+        fitness.* = getFitness(w, training_set, training_set);
     }
-    result_idx_ptr.* = idx_min;
-    result_dist_ptr.* = dist_min;
-    wait_group.finish();
+    waiting_group.finish();
 }
 
 fn classifier1NN(e: Example, set: []const Example, skip_idx: ?usize, w: []const f64) []const u8 {
