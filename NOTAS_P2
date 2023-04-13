@@ -1,0 +1,51 @@
+la poblacion es de 50
+
+[ALGORITMOS GENETICOS]
+[modelo generacional]
+seleccion:
+	para cada posicion, comparo dos aleatorias del conjunto anterior y me quedo con la mejor. esto se llama torneo binario.
+
+cruce:
+	cruzamos el 70%. el primero con el segundo, tercero con el cuarto, etc (porque la seleccion ya nos da un conjunto ordenado aleatoriamente). ademas, cruzamos directamente las 34 primeras, y dejamos igual las 16 ultimas.
+
+mutacion:
+	mutamos el 10%, una caracteristica. directamente cogeremos 5 individuos aleatorios, y a cada uno le mutamos una caracteristica aleatoria.
+
+reemplazamiento:
+	evaluo el resultado. quito la peor, y meto la mejor del conjunto anterior.
+
+por tanto en cada iteracion realizamos 50 evaluaciones.
+
+
+[modelo estacionario]
+seleccion:
+	escojo 2 posiciones, me quedo con la mejor. repito, obteniendo dos elementos.
+
+cruce:
+	cruzamos esos dos elementos
+
+mutacion:
+	con una pequena prob, muto una de las dos
+
+reemplazamiento:
+	cojo los dos peores del conjunto anterior y los otros dos, y dejo en el conjunto los dos mejores de los 4
+
+realiza en cada iteracion 2 evaluaciones, + 50 evaluaciones al inicio.
+
+
+[ALGORITMOS MEMETICOS]
+objetivo: los geneticos son muy buenos para explorar, pero la explotacion es mejorable.
+les añadimos componente de explotacion: busqueda local. las evaluaciones de esta busqueda local tmb se tienen que tener en cuenta para el contador.
+vamos a hacer algoritmo memetico de baja intensidad, de 3 formas diferentes
+creo que ha dicho que la BL se aplica entre mutacion y reemplazamiento, y lo vamos a implementar en el modelo generacional.
+ojo: si despues de hacer una busqueda local nos hemos pasado del numero de evaluaciones, no pasa nada, pero no seguir haciendo busquedas locales.
+idea: si nos quedan pocas evaluaciones y no da tiempo a hacer todas las busquedas locales, no hacerlas.
+
+[APC]
+ojo: en el cruce en el que hay que escoger un alfa entre 0 y 1, si sale en 0.5 volver a tirar.
+
+[EXPERIMENTOS]
+2 algoritmos geneticos * 2 operadores de cruce + 3 algoritmos memeticos = 7 experimentos
+los memeticos deberian ser mas rapidos que los geneticos
+
+ESTIMACION DE TIEMPO: 1h en ejecutar todos los experimentos, medio minuto por particion. que dios nos pille confesados.
