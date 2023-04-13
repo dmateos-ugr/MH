@@ -53,112 +53,6 @@ pub fn AGG_Arit(training_set: []const Example, allocator: Allocator, rnd: Random
     return agg_aux(training_set, allocator, rnd, crossArithmetic);
 }
 
-// TODO modificar bl para que use esto?
-const WeightFitness = struct {
-    w: []f64,
-    fitness: f64,
-
-    fn initRandom(training_set: []const Example, allocator: Allocator, rnd: Random) !WeightFitness {
-        const n = training_set[0].attributes.len;
-        const w = try utils.createRandomSolution(n, allocator, rnd);
-        return init(w, training_set);
-    }
-
-    // fn initZero(training_set: []const Example, allocator: Allocator) !WeightFitness {
-    //     const n = training_set[0].attributes.len;
-    //     const w = try allocator.alloc(f64, n);
-    //     for (w) |*weight| {
-    //         weight.* = 0;
-    //     }
-    //     return init(w, training_set);
-    // }
-
-    fn init(w: []f64, training_set: []const Example) WeightFitness {
-        return .{
-            .w = w,
-            .fitness = utils.getFitness(w, training_set, training_set),
-        };
-    }
-
-    fn deinit(self: WeightFitness, allocator: Allocator) void {
-        allocator.free(self.w);
-    }
-
-    fn updateFitness(self: *WeightFitness, training_set: []const Example) void {
-        self.fitness = utils.getFitness(self.w, training_set, training_set);
-    }
-};
-
-fn agg_aux2(
-    training_set: []const Example,
-    allocator: Allocator,
-    rnd: Random,
-    comptime cross_fn: CrossFn,
-) ![]const f64 {
-    const n = training_set[0].attributes.len;
-
-    var population: [N_POPULATION]WeightFitness = undefined;
-    var new_population: [N_POPULATION]WeightFitness = undefined;
-    for (&population) |*element| {
-        element.* = try WeightFitness.initRandom(training_set, allocator, rnd);
-    }
-    // TODO defer
-
-    var evaluations: usize = 0;
-    while (evaluations < 15000) : (evaluations += new_population.len) {
-        // Seleccion
-        for (&new_population) |*element| {
-            const idx1 = rnd.uintLessThan(usize, population.len);
-            const idx2 = rnd.uintLessThan(usize, population.len);
-            element.* = if (population[idx1].fitness > population[idx2].fitness)
-                population[idx1]
-            else
-                population[idx2];
-        }
-
-        // Cruce
-        for (0..N_CROSS_PAIRS) |i| {
-            const element1 = new_population[2 * i];
-            const element2 = new_population[2 * i + 1];
-            cross_fn(element1.w, element2.w, rnd);
-        }
-
-        // Mutacion
-        for (0..N_MUTATIONS) |_| {
-            const i = rnd.uintLessThan(usize, new_population.len);
-            const i_weight = rnd.uintLessThan(usize, n);
-            utils.mov(new_population[i].w, i_weight, rnd);
-        }
-
-        // Reemplazamiento
-        var new_min_fitness_idx: usize = 0;
-        var old_max_fitness_idx: usize = 0;
-        for (&new_population, &population, 0..) |*new_element, *element, i| {
-            // TODO probablemente sea mejor un array de fitness y a volar
-            new_element.updateFitness(training_set);
-            if (new_element.fitness < new_population[new_min_fitness_idx].fitness)
-                new_min_fitness_idx = i;
-
-            if (element.fitness > population[old_max_fitness_idx].fitness)
-                old_max_fitness_idx = i;
-        }
-
-        new_population[new_min_fitness_idx] = population[old_max_fitness_idx];
-        std.mem.copy(WeightFitness, &population, &new_population);
-
-        // utils.print("{}\n", .{evaluations});
-    }
-
-    var max_fitness_idx: usize = 0;
-    for (population, 0..) |element, i| {
-        if (element.fitness > population[max_fitness_idx].fitness)
-            max_fitness_idx = i;
-    }
-
-    return population[max_fitness_idx].w;
-}
-
-
 fn agg_aux(
     training_set: []const Example,
     allocator: Allocator,
@@ -167,28 +61,33 @@ fn agg_aux(
 ) ![]const f64 {
     const n = training_set[0].attributes.len;
 
-    var population: [N_POPULATION][]f64 = undefined;
-    var fitnesses: [N_POPULATION]f64 = undefined;
-    var new_population: [N_POPULATION][]f64 = undefined;
-    var new_fitnesses: [N_POPULATION]f64 = undefined;
+    var population1: [N_POPULATION][]f64 = undefined;
+    var population2: [N_POPULATION][]f64 = undefined;
+    var fitnesses1: [N_POPULATION]f64 = undefined;
+    var fitnesses2: [N_POPULATION]f64 = undefined;
+
+    var population = &population1;
+    var fitnesses = &fitnesses1;
+    var new_population = &population2;
+    var new_fitnesses = &fitnesses2;
 
     // Initial population
-    for (&population) |*element| {
+    for (population) |*element| {
         element.* = try utils.createRandomSolution(n, allocator, rnd);
     }
-    utils.getFitnesses(&population, training_set, &fitnesses);
-    // TODO defer
+    defer for (population) |element| {
+        allocator.free(element);
+    };
+    utils.getFitnesses(population, training_set, fitnesses);
 
     var evaluations: usize = population.len; // we have already done one round of evaluations
     while (evaluations < 15000) : (evaluations += new_population.len) {
         // Seleccion
-        for (&new_population) |*element| {
+        for (new_population) |*element| {
             const idx1 = rnd.uintLessThan(usize, population.len);
             const idx2 = rnd.uintLessThan(usize, population.len);
-            element.* = if (fitnesses[idx1] > fitnesses[idx2])
-                population[idx1]
-            else
-                population[idx2];
+            const idx_win = if (fitnesses[idx1] > fitnesses[idx2]) idx1 else idx2;
+            element.* = try allocator.dupe(f64, population[idx_win]);
         }
 
         // Cruce
@@ -206,7 +105,7 @@ fn agg_aux(
         }
 
         // Reemplazamiento
-        utils.getFitnesses(&new_population, training_set, &new_fitnesses);
+        utils.getFitnesses(new_population, training_set, new_fitnesses);
         var new_min_fitness_idx: usize = 0;
         var old_max_fitness_idx: usize = 0;
         for (new_fitnesses, fitnesses, 0..) |new_fitness, fitness, i| {
@@ -215,15 +114,20 @@ fn agg_aux(
             if (fitness > fitnesses[old_max_fitness_idx])
                 old_max_fitness_idx = i;
         }
-
-        new_population[new_min_fitness_idx] = population[old_max_fitness_idx];
+        allocator.free(new_population[new_min_fitness_idx]);
+        new_population[new_min_fitness_idx] = try allocator.dupe(f64, population[old_max_fitness_idx]);
         new_fitnesses[new_min_fitness_idx] = fitnesses[old_max_fitness_idx];
-        // TODO think about avoiding this copy, just using two buffers and
-        // choosing one or another.
-        std.mem.copy([]f64, &population, &new_population);
-        std.mem.copy(f64, &fitnesses, &new_fitnesses);
+
+        // Free elements of previous population
+        for (population) |element| {
+            allocator.free(element);
+        }
+
+        // Make new_population the current population
+        std.mem.swap(*[N_POPULATION][]f64, &population, &new_population);
+        std.mem.swap(*[N_POPULATION]f64, &fitnesses, &new_fitnesses);
     }
 
-    const max_fitness_idx = std.mem.indexOfMax(f64, &fitnesses);
-    return population[max_fitness_idx];
+    const max_fitness_idx = std.mem.indexOfMax(f64, fitnesses);
+    return allocator.dupe(f64, population[max_fitness_idx]);
 }

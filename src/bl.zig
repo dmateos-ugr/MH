@@ -48,11 +48,7 @@ const IndexIterator = struct {
 
 pub fn busquedaLocalP1(training_set: []const Example, allocator: Allocator, rnd: Random) ![]const f64 {
     const n = training_set[0].attributes.len;
-    const w = try allocator.alloc(f64, n);
-    errdefer allocator.free(w);
-    for (w) |*weight| {
-        weight.* = rnd.float(f64); // range [0, 1)
-    }
+    const w = try utils.createRandomSolution(n, allocator, rnd);
 
     _ = try busquedaLocal(w, training_set, allocator, rnd, .{
         .max_iters = 15000,
