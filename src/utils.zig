@@ -10,6 +10,9 @@ const ALPHA = 0.8;
 
 const N_PARTITIONS = 5;
 
+const MOV_VARIANCE = 0.3;
+const MOV_STDDEV = std.math.sqrt(MOV_VARIANCE);
+
 pub fn print(comptime format: []const u8, args: anytype) void {
     const stdout = std.io.getStdOut().writer();
     stdout.print(format, args) catch unreachable;
@@ -41,8 +44,24 @@ pub const Example = struct {
     }
 
     pub fn distanceWeighted(self: Example, other: Example, w: []const f64) f64 {
+        // var ret: f64 = 0;
+        // for (self.attributes, other.attributes, w) |attr1, attr2, weight| {
+        //     if (weight < MIN_WEIGHT) continue;
+        //     const dist = attr1 - attr2;
+        //     ret += dist * dist * weight;
+        // }
+        // return ret;
+        return distanceWeightedRaw(w.len, self.attributes.ptr, other.attributes.ptr, w.ptr);
+    }
+
+    fn distanceWeightedRaw(
+        n: usize,
+        noalias attributes1: [*]const f64,
+        noalias attributes2: [*]const f64,
+        noalias w: [*]const f64,
+    ) f64 {
         var ret: f64 = 0;
-        for (self.attributes, other.attributes, w) |attr1, attr2, weight| {
+        for (attributes1[0..n], attributes2[0..n], w[0..n]) |attr1, attr2, weight| {
             if (weight < MIN_WEIGHT) continue;
             const dist = attr1 - attr2;
             ret += dist * dist * weight;
@@ -153,6 +172,25 @@ pub fn readPartitions(dataset: []const u8, allocator: Allocator) ![N_PARTITIONS]
     return partitions;
 }
 
+pub fn mov(w: []f64, i: usize, rnd: Random) void {
+    const z_i = rndNorm(rnd, 0, MOV_STDDEV);
+    const result = w[i] + z_i;
+    const result_truncated = std.math.max(0, std.math.min(1, result));
+    w[i] = result_truncated;
+}
+
+fn rndNorm(rnd: Random, mean: f64, stddev: f64) f64 {
+    return rnd.floatNorm(f64) * stddev + mean;
+}
+
+pub fn createRandomSolution(n: usize, allocator: Allocator, rnd: Random) ![]f64 {
+    const w = try allocator.alloc(f64, n);
+    for (w) |*weight| {
+        weight.* = rnd.float(f64); // range [0, 1)
+    }
+    return w;
+}
+
 pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
     return ALPHA * tasaClas(w, test_set, training_set) + (1 - ALPHA) * tasaRed(w);
 }
@@ -184,11 +222,86 @@ pub fn tasaRed(weights: []const f64) f64 {
     return 100.0 * @intToFloat(f64, discarded) / @intToFloat(f64, weights.len);
 }
 
+const N_THREADS = 8;
+var g_thread_pool: std.Thread.Pool = undefined;
+
+pub fn initThreadPool(allocator: Allocator) !void {
+    try g_thread_pool.init(.{
+        .allocator = allocator,
+        .n_jobs = N_THREADS,
+    });
+}
+
+pub fn deinitThreadPool() void {
+    g_thread_pool.deinit();
+}
+
+
+fn classifier1NN2(e: Example, set: []const Example, skip_idx: ?usize, w: []const f64) []const u8 {
+    var results_idx: [N_THREADS]usize = undefined;
+    var results_dist: [N_THREADS]f64 = undefined;
+
+    var wait_group = std.Thread.WaitGroup{};
+
+    const size = set.len / N_THREADS;
+    for (0..N_THREADS) |i| {
+        const start_idx = size * i;
+        const end_idx = std.math.min(size * (i + 1), set.len);
+        // print("thread {}: {}-{}\n", .{i, start_idx, end_idx});
+
+        wait_group.start();
+        g_thread_pool.spawn(worker, .{
+            e,
+            set,
+            skip_idx,
+            w,
+            start_idx,
+            end_idx,
+            &results_idx[i],
+            &results_dist[i],
+            &wait_group,
+        }) catch unreachable;
+    }
+    g_thread_pool.waitAndWork(&wait_group);
+
+    const thread_idx_min = std.mem.indexOfMin(f64, &results_dist);
+    const set_idx_min = results_idx[thread_idx_min];
+    return set[set_idx_min].class;
+}
+
+// TODO
+fn worker(
+    e: Example,
+    set: []const Example,
+    skip_idx: ?usize,
+    w: []const f64,
+    start_idx: usize,
+    end_idx: usize,
+    result_idx_ptr: *usize,
+    result_dist_ptr: *f64,
+    wait_group: *std.Thread.WaitGroup
+) void {
+    var idx_min: usize = undefined;
+    var dist_min = std.math.floatMax(f64);
+    for (set[start_idx..end_idx], start_idx..end_idx) |example, i| {
+        if (skip_idx == i)
+            continue;
+        const dist = e.distanceWeighted(example, w);
+        if (dist < dist_min) {
+            dist_min = dist;
+            idx_min = i;
+        }
+    }
+    result_idx_ptr.* = idx_min;
+    result_dist_ptr.* = dist_min;
+    wait_group.finish();
+}
+
 fn classifier1NN(e: Example, set: []const Example, skip_idx: ?usize, w: []const f64) []const u8 {
     var class_min: []const u8 = undefined;
     var dist_min = std.math.floatMax(f64);
     for (set, 0..) |example, i| {
-        if (skip_idx != null and skip_idx.? == i)
+        if (skip_idx == i)
             continue;
         const dist = e.distanceWeighted(example, w);
         if (dist < dist_min) {

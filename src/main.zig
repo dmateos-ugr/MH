@@ -106,9 +106,10 @@ pub fn main() !void {
     };
 
     const algorithms = [_]Algorithm{
-        .{ .func = busquedaLocal, .name = "BUSQUEDA LOCAL" },
-        .{ .func = ref_algorithms.greedy, .name = "GREEDY" },
-        .{ .func = ref_algorithms.algOriginal1NN, .name = "1NN" },
+        // .{ .func = busquedaLocalP1, .name = "BUSQUEDA LOCAL" },
+        // .{ .func = ref_algorithms.greedy, .name = "GREEDY" },
+        // .{ .func = ref_algorithms.algOriginal1NN, .name = "1NN" },
+        .{ .func = genetic.AGG_BLX, .name = "AGG BLX" },
     };
 
     for (algorithms) |algorithm| {
@@ -132,6 +133,7 @@ pub fn main() !void {
                 fitness,
                 @intToFloat(f64, time) / 1000,
             });
+            std.process.exit(1);
         }
 
         print("\n", .{});
