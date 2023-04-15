@@ -115,6 +115,8 @@ pub fn main() !void {
         // .{ .func = ref_algorithms.algOriginal1NN, .name = "1NN" },
         .{ .func = genetic.AGG_BLX, .name = "AGG BLX" },
         .{ .func = genetic.AGG_Arit, .name = "AGG Arit" },
+        .{ .func = genetic.AGE_BLX, .name = "AGE BLX" },
+        .{ .func = genetic.AGE_Arit, .name = "AGE Arit" },
     };
 
     for (algorithms) |algorithm| {

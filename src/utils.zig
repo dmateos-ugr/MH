@@ -192,7 +192,9 @@ pub fn createRandomSolution(n: usize, allocator: Allocator, rnd: Random) ![]f64 
 }
 
 pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
-    return ALPHA * tasaClas(w, test_set, training_set) + (1 - ALPHA) * tasaRed(w);
+    const ret = ALPHA * tasaClas(w, test_set, training_set) + (1 - ALPHA) * tasaRed(w);
+    std.debug.assert(0 <= ret and ret <= 100);
+    return ret;
 }
 
 pub fn tasaClas(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
@@ -241,14 +243,19 @@ pub fn getFitnesses(
     training_set: []const Example,
     fitnesses: []f64,
 ) void {
-    const n_threads = g_thread_pool.threads.len;
     var wait_group = std.Thread.WaitGroup{};
-    const size = solutions.len / n_threads;
+    var n_threads = g_thread_pool.threads.len;
+    var size = solutions.len / n_threads;
+    if (size == 0) {
+        size = 1;
+        n_threads = solutions.len;
+    }
+
+    // Launch threads
     for (0..n_threads) |i| {
         const start_idx = size * i;
-        const end_idx = std.math.min(size * (i + 1), solutions.len);
-        // print("thread {}: {}-{}\n", .{i, start_idx, end_idx});
-
+        const end_idx = if (i == n_threads - 1) solutions.len else size * (i + 1);
+        // print("thread {}: {}-{}\n", .{ i, start_idx, end_idx });
         wait_group.start();
         g_thread_pool.spawn(worker, .{
             solutions,
@@ -259,7 +266,13 @@ pub fn getFitnesses(
             &wait_group,
         }) catch unreachable;
     }
+
+    // Wait for them to finish
     g_thread_pool.waitAndWork(&wait_group);
+
+    for (fitnesses) |fitness| {
+        std.debug.assert(0 <= fitness and fitness <= 100);
+    }
 }
 
 fn worker(
