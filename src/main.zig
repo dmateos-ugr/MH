@@ -89,7 +89,7 @@ pub fn main() !void {
     };
     const rng_seed = args.seed orelse @bitCast(usize, std.time.microTimestamp()) % 100;
     print("Dataset: {s}\n", .{args.dataset.?});
-    print("Seed: {}\n\n", .{rng_seed});
+    print("Seed: {}\n", .{rng_seed});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -98,25 +98,24 @@ pub fn main() !void {
     var rng = std.rand.DefaultPrng.init(rng_seed);
     const rnd = rng.random();
 
-    try utils.initThreadPool(allocator);
+    const n_threads = try utils.initThreadPool(allocator);
     defer utils.deinitThreadPool();
+    print("Number of threads: {}\n", .{n_threads});
 
     const partitions = try utils.readPartitions(args.dataset.?, allocator);
-    defer for (partitions) |partition| {
-        for (partition) |example| {
-            example.deinit(allocator);
-        }
-        allocator.free(partition);
-    };
+    defer utils.freePartitions(partitions, allocator);
 
     const algorithms = [_]Algorithm{
         // .{ .func = busquedaLocalP1, .name = "BUSQUEDA LOCAL" },
         // .{ .func = ref_algorithms.greedy, .name = "GREEDY" },
         // .{ .func = ref_algorithms.algOriginal1NN, .name = "1NN" },
+        // .{ .func = genetic.AM_Best, .name = "AM Best" },
+        // .{ .func = genetic.AM_All, .name = "AM All" },
+        // .{ .func = genetic.AM_Rand, .name = "AM Rand" },
         .{ .func = genetic.AGG_BLX, .name = "AGG BLX" },
-        .{ .func = genetic.AGG_Arit, .name = "AGG Arit" },
-        .{ .func = genetic.AGE_BLX, .name = "AGE BLX" },
-        .{ .func = genetic.AGE_Arit, .name = "AGE Arit" },
+        // .{ .func = genetic.AGG_Arit, .name = "AGG Arit" },
+        // .{ .func = genetic.AGE_BLX, .name = "AGE BLX" },
+        // .{ .func = genetic.AGE_Arit, .name = "AGE Arit" },
     };
 
     for (algorithms) |algorithm| {
@@ -144,4 +143,39 @@ pub fn main() !void {
 
         print("\n", .{});
     }
+}
+
+test {
+    std.testing.refAllDecls(@This());
+}
+
+// Having a 100% reduction rate weight means the classifier assigns to each
+// test element the class of the first element in the training set
+test {
+    const allocator = std.testing.allocator;
+
+    _ =try utils.initThreadPool(allocator);
+    defer utils.deinitThreadPool();
+
+    const partitions = try utils.readPartitions("diabetes", allocator);
+    defer utils.freePartitions(partitions, allocator);
+
+    const training_set = try utils.joinPartitions(partitions, 0, allocator);
+    defer allocator.free(training_set);
+    const test_set = partitions[0];
+
+    const w = try allocator.alloc(f64, training_set[0].attributes.len);
+    defer allocator.free(w);
+    std.mem.set(f64, w, 0);
+
+    const tasa_clas = utils.tasaClas(w, test_set, training_set);
+
+    var n: usize = 0;
+    for (test_set) |test_example| {
+        if (std.mem.eql(u8, test_example.class, training_set[0].class))
+            n += 1;
+    }
+    const tasa_clas_calc = 100.0 * @intToFloat(f64, n) / @intToFloat(f64, test_set.len);
+
+    try std.testing.expectEqual(tasa_clas_calc, tasa_clas);
 }

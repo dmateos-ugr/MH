@@ -172,6 +172,15 @@ pub fn readPartitions(dataset: []const u8, allocator: Allocator) ![N_PARTITIONS]
     return partitions;
 }
 
+pub fn freePartitions(partitions: [N_PARTITIONS][]Example, allocator: Allocator) void {
+    for (partitions) |partition| {
+        for (partition) |example| {
+            example.deinit(allocator);
+        }
+        allocator.free(partition);
+    }
+}
+
 pub fn mov(w: []f64, i: usize, rnd: Random) void {
     const z_i = rndNorm(rnd, 0, MOV_STDDEV);
     const result = w[i] + z_i;
@@ -214,6 +223,79 @@ pub fn tasaClas(w: []const f64, test_set: []const Example, training_set: []const
     return 100.0 * @intToFloat(f64, well_classified) / @intToFloat(f64, test_set.len);
 }
 
+pub fn tasaClas_new(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
+    // This is a pointer and length comparison. Doesn't work if test_set is a
+    // *copy* of training_set, instead of the same slice, but works for now.
+    const leave_one_out = std.meta.eql(test_set, training_set);
+
+    var wait_group = std.Thread.WaitGroup{};
+    var n_threads = g_thread_pool.threads.len;
+    var size = test_set.len / n_threads;
+    if (size == 0) {
+        size = 1;
+        n_threads = test_set.len;
+    }
+
+    for (g_thread_results) |*result| {
+        result.* = std.math.maxInt(usize);
+    }
+
+    // Launch threads
+    for (0..n_threads) |i| {
+        const start_idx = size * i;
+        const end_idx = if (i == n_threads - 1) test_set.len else size * (i + 1);
+        // print("thread {}: {}-{}\n", .{ i, start_idx, end_idx });
+        wait_group.start();
+        g_thread_pool.spawn(workerTasaClas, .{
+            w,
+            test_set,
+            training_set,
+            leave_one_out,
+            start_idx,
+            end_idx,
+            &wait_group,
+            &g_thread_results[i],
+        }) catch unreachable;
+    }
+
+    // Wait for them to finish
+    g_thread_pool.waitAndWork(&wait_group);
+
+    for (g_thread_results) |*result| {
+        std.debug.assert(result.* != std.math.maxInt(usize));
+    }
+
+    // Compute final result
+    var well_classified: usize = 0;
+    for (g_thread_results) |result| {
+        well_classified += result;
+    }
+    return 100.0 * @intToFloat(f64, well_classified) / @intToFloat(f64, test_set.len);
+}
+
+fn workerTasaClas(
+    w: []const f64,
+    test_set: []const Example,
+    training_set: []const Example,
+    leave_one_out: bool,
+    start_idx: usize,
+    end_idx: usize,
+    waiting_group: *std.Thread.WaitGroup,
+    result: *usize,
+) void {
+    // Classify every example in test_set using training_set and weights w
+    var well_classified: usize = 0;
+    for (test_set[start_idx..end_idx], start_idx..end_idx) |example, i| {
+        const skip_idx = if (leave_one_out) i else null;
+        const class = classifier1NN(example, training_set, skip_idx, w);
+        if (std.mem.eql(u8, class, example.class))
+            well_classified += 1;
+    }
+
+    result.* = well_classified;
+    waiting_group.finish();
+}
+
 pub fn tasaRed(weights: []const f64) f64 {
     var discarded: usize = 0;
     for (weights) |weight| {
@@ -224,22 +306,45 @@ pub fn tasaRed(weights: []const f64) f64 {
     return 100.0 * @intToFloat(f64, discarded) / @intToFloat(f64, weights.len);
 }
 
-var g_thread_pool: std.Thread.Pool = undefined;
+test "tasaRed 100" {
+    const w = try std.testing.allocator.alloc(f64, 8);
+    defer std.testing.allocator.free(w);
+    std.mem.set(f64, w, 0);
+    const tasa_red = tasaRed(w);
+    try std.testing.expectEqual(@as(f64, 100), tasa_red);
+    // print("{}\n", .{tasa_red});
+}
 
-pub fn initThreadPool(allocator: Allocator) !void {
+var g_thread_pool: std.Thread.Pool = undefined;
+var g_thread_results: []usize = undefined;
+
+pub fn initThreadPool(allocator: Allocator) !usize {
     try g_thread_pool.init(.{
         .allocator = allocator,
         .n_jobs = null,
     });
-    print("Numero de threads: {}\n", .{g_thread_pool.threads.len});
+    const n_threads = g_thread_pool.threads.len;
+    g_thread_results = try allocator.alloc(usize, n_threads);
+    return n_threads;
 }
 
 pub fn deinitThreadPool() void {
+    g_thread_pool.allocator.free(g_thread_results);
     g_thread_pool.deinit();
 }
 
+pub fn getFitnesses_sec(
+    solutions: []const []const f64,
+    training_set: []const Example,
+    fitnesses: []f64,
+) void {
+    for (solutions, fitnesses) |w, *fitness| {
+        fitness.* = getFitness(w, training_set, training_set);
+    }
+}
+
 pub fn getFitnesses(
-    solutions: [][]const f64,
+    solutions: []const []const f64,
     training_set: []const Example,
     fitnesses: []f64,
 ) void {
@@ -257,7 +362,7 @@ pub fn getFitnesses(
         const end_idx = if (i == n_threads - 1) solutions.len else size * (i + 1);
         // print("thread {}: {}-{}\n", .{ i, start_idx, end_idx });
         wait_group.start();
-        g_thread_pool.spawn(worker, .{
+        g_thread_pool.spawn(workerGetFitnesses, .{
             solutions,
             training_set,
             fitnesses,
@@ -275,8 +380,8 @@ pub fn getFitnesses(
     }
 }
 
-fn worker(
-    solutions: [][]const f64,
+fn workerGetFitnesses(
+    solutions: []const []const f64,
     training_set: []const Example,
     fitnesses: []f64,
     start_idx: usize,

@@ -63,15 +63,20 @@ const LocalSearchConfig = struct {
     max_neighbours_per_attribute: usize,
 };
 
+const LocalSearchResult = struct {
+    iters: usize,
+    fitness: f64,
+};
+
 // Performs local search with `w` as initial solution. The final solution is
-// held in `w`. Returns the number of iterations performed.
+// held in `w`. Returns its fitness and the number of iterations performed.
 pub fn busquedaLocal(
     w: []f64,
     training_set: []const Example,
     allocator: Allocator,
     rnd: Random,
     config: LocalSearchConfig, // TODO probar a poner comptime
-) !usize {
+) !LocalSearchResult {
     const n = w.len;
     const max_neighbours = config.max_neighbours_per_attribute * n;
 
@@ -87,8 +92,8 @@ pub fn busquedaLocal(
     defer indexes.deinit();
 
     var neighbours: usize = 0;
-    var iter: usize = 0;
-    while (neighbours < max_neighbours and iter < config.max_iters) : (iter += 1) {
+    var iters: usize = 0;
+    while (neighbours < max_neighbours and iters < config.max_iters) : (iters += 1) {
         // Mutate w into w_mut
         std.mem.copy(f64, w_mut, w);
         utils.mov(w_mut, indexes.next(), rnd);
@@ -104,7 +109,7 @@ pub fn busquedaLocal(
         } else neighbours += 1;
     }
 
-    // utils.print("iterations: {}, neighbours: {}\n", .{ iter, neighbours });
+    // utils.print("iterations: {}, neighbours: {}\n", .{ iters, neighbours });
 
-    return iter;
+    return .{ .iters = iters, .fitness = current_fitness };
 }
