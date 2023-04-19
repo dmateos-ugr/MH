@@ -9,9 +9,15 @@ const Example = utils.Example;
 const print = utils.print;
 
 const AlgorithmFn = *const fn (training_set: []const Example, allocator: Allocator, rnd: Random) error{OutOfMemory}![]const f64;
+
 const Algorithm = struct {
     func: AlgorithmFn,
     name: []const u8,
+};
+
+const AlgorithmResult = struct {
+    fitness_data: utils.FitnessData,
+    time: u64,
 };
 
 const Args = struct {
@@ -109,16 +115,18 @@ pub fn main() !void {
         // .{ .func = busquedaLocalP1, .name = "BUSQUEDA LOCAL" },
         // .{ .func = ref_algorithms.greedy, .name = "GREEDY" },
         // .{ .func = ref_algorithms.algOriginal1NN, .name = "1NN" },
-        // .{ .func = genetic.AM_Best, .name = "AM Best" },
-        // .{ .func = genetic.AM_All, .name = "AM All" },
-        // .{ .func = genetic.AM_Rand, .name = "AM Rand" },
+        .{ .func = genetic.AGG_Arit, .name = "AGG Arit" },
         .{ .func = genetic.AGG_BLX, .name = "AGG BLX" },
-        // .{ .func = genetic.AGG_Arit, .name = "AGG Arit" },
-        // .{ .func = genetic.AGE_BLX, .name = "AGE BLX" },
-        // .{ .func = genetic.AGE_Arit, .name = "AGE Arit" },
+        .{ .func = genetic.AGE_BLX, .name = "AGE BLX" },
+        .{ .func = genetic.AGE_Arit, .name = "AGE Arit" },
+        .{ .func = genetic.AM_Best, .name = "AM Best" },
+        .{ .func = genetic.AM_All, .name = "AM All" },
+        .{ .func = genetic.AM_Rand, .name = "AM Rand" },
     };
 
     for (algorithms) |algorithm| {
+        var result_average = std.mem.zeroes(AlgorithmResult);
+
         print("[ALGORITMO {s}]\n", .{algorithm.name});
         print("              %_clas   %_red  Fitness   T (s)\n", .{});
         for (0..partitions.len) |i| {
@@ -130,18 +138,33 @@ pub fn main() !void {
             const w = try algorithm.func(training_set, allocator, rnd);
             defer allocator.free(w);
             const time = std.time.milliTimestamp() - time_start;
-            const fitness = utils.getFitness(w, test_set, training_set);
+            const fitness_data = utils.getFitnessData(w, test_set, training_set);
+
+            result_average.fitness_data.fitness += fitness_data.fitness;
+            result_average.fitness_data.tasa_clas += fitness_data.tasa_clas;
+            result_average.fitness_data.tasa_red += fitness_data.tasa_red;
+            result_average.time += @intCast(u64, time);
 
             print("Particion {}:  {d:6.3}  {d:6.3}  {d:7.3}  {d:6.3}\n", .{
                 i + 1,
-                utils.tasaClas(w, test_set, training_set),
-                utils.tasaRed(w),
-                fitness,
+                fitness_data.tasa_clas,
+                fitness_data.tasa_red,
+                fitness_data.fitness,
                 @intToFloat(f64, time) / 1000,
             });
         }
 
-        print("\n", .{});
+        // Print average
+        result_average.fitness_data.fitness /= @intToFloat(f64, partitions.len);
+        result_average.fitness_data.tasa_clas /= @intToFloat(f64, partitions.len);
+        result_average.fitness_data.tasa_red /= @intToFloat(f64, partitions.len);
+        result_average.time /= partitions.len;
+        print("Media:        {d:6.3}  {d:6.3}  {d:7.3}  {d:6.3}\n\n", .{
+            result_average.fitness_data.tasa_clas,
+            result_average.fitness_data.tasa_red,
+            result_average.fitness_data.fitness,
+            @intToFloat(f64, result_average.time) / 1000,
+        });
     }
 }
 

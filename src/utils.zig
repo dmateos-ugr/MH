@@ -200,13 +200,30 @@ pub fn createRandomSolution(n: usize, allocator: Allocator, rnd: Random) ![]f64 
     return w;
 }
 
-pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
-    const ret = ALPHA * tasaClas(w, test_set, training_set) + (1 - ALPHA) * tasaRed(w);
-    std.debug.assert(0 <= ret and ret <= 100);
-    return ret;
+pub const FitnessData = struct {
+    tasa_clas: f64,
+    tasa_red: f64,
+    fitness: f64,
+};
+
+pub fn getFitnessData(w: []const f64, test_set: []const Example, training_set: []const Example) FitnessData {
+    const tasa_clas = tasaClas(w, test_set, training_set);
+    const tasa_red = tasaRed(w);
+    const fitness = ALPHA * tasa_clas + (1 - ALPHA) * tasa_red;
+    return FitnessData{
+        .tasa_clas = tasa_clas,
+        .tasa_red = tasa_red,
+        .fitness = fitness,
+    };
 }
 
-pub fn tasaClas(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
+pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
+    return getFitnessData(w, test_set, training_set).fitness;
+}
+
+pub const tasaClas = tasaClasParallel;
+
+pub fn tasaClasSequential(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
     // This is a pointer and length comparison. Doesn't work if test_set is a
     // *copy* of training_set, instead of the same slice, but works for now.
     const leave_one_out = std.meta.eql(test_set, training_set);
@@ -223,7 +240,8 @@ pub fn tasaClas(w: []const f64, test_set: []const Example, training_set: []const
     return 100.0 * @intToFloat(f64, well_classified) / @intToFloat(f64, test_set.len);
 }
 
-pub fn tasaClas_new(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
+// This can't be used together with the parallel version of getFitnesses
+pub fn tasaClasParallel(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
     // This is a pointer and length comparison. Doesn't work if test_set is a
     // *copy* of training_set, instead of the same slice, but works for now.
     const leave_one_out = std.meta.eql(test_set, training_set);
@@ -333,7 +351,9 @@ pub fn deinitThreadPool() void {
     g_thread_pool.deinit();
 }
 
-pub fn getFitnesses_sec(
+pub const getFitnesses = getFitnessesSequential;
+
+pub fn getFitnessesSequential(
     solutions: []const []const f64,
     training_set: []const Example,
     fitnesses: []f64,
@@ -343,7 +363,8 @@ pub fn getFitnesses_sec(
     }
 }
 
-pub fn getFitnesses(
+// This can't be used together with the parallel version of tasaClas
+pub fn getFitnessesParallel(
     solutions: []const []const f64,
     training_set: []const Example,
     fitnesses: []f64,
