@@ -64,12 +64,12 @@ const LocalSearchConfig = struct {
 };
 
 const LocalSearchResult = struct {
-    iters: usize,
+    evaluations: usize,
     fitness: f64,
 };
 
 // Performs local search with `w` as initial solution. The final solution is
-// held in `w`. Returns its fitness and the number of iterations performed.
+// held in `w`. Returns its fitness and the number of evaluations performed.
 pub fn busquedaLocal(
     w: []f64,
     training_set: []const Example,
@@ -111,5 +111,6 @@ pub fn busquedaLocal(
 
     // utils.print("iterations: {}, neighbours: {}\n", .{ iters, neighbours });
 
-    return .{ .iters = iters, .fitness = current_fitness };
+    // We have done one evaluation at the beginning
+    return .{ .evaluations = iters + 1, .fitness = current_fitness };
 }

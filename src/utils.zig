@@ -222,6 +222,7 @@ pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []con
 }
 
 pub const tasaClas = tasaClasParallel;
+// pub const tasaClas = tasaClasSequential;
 
 pub fn tasaClasSequential(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
     // This is a pointer and length comparison. Doesn't work if test_set is a
@@ -351,6 +352,7 @@ pub fn deinitThreadPool() void {
     g_thread_pool.deinit();
 }
 
+// pub const getFitnesses = getFitnessesParallel;
 pub const getFitnesses = getFitnessesSequential;
 
 pub fn getFitnessesSequential(
@@ -428,4 +430,10 @@ fn classifier1NN(e: Example, set: []const Example, skip_idx: ?usize, w: []const 
         }
     }
     return class_min;
+}
+
+comptime {
+    const is_tasaClas_parallel = tasaClas == tasaClasParallel;
+    const is_getFitnesses_parallel = getFitnesses == getFitnessesParallel;
+    std.debug.assert(!(is_tasaClas_parallel and is_getFitnesses_parallel));
 }

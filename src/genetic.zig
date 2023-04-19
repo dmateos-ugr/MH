@@ -72,6 +72,16 @@ pub fn AM_Best(training_set: []const Example, allocator: Allocator, rnd: Random)
     return agg_aux(training_set, allocator, rnd, crossArithmetic, .Best);
 }
 
+fn binaryTournament(fitnesses: *const [N_POPULATION]f64, rnd: Random) usize {
+    const idx1 = rnd.uintLessThan(usize, fitnesses.len);
+    var idx2 = rnd.uintLessThan(usize, fitnesses.len);
+    while (idx1 == idx2)
+        idx2 = rnd.uintLessThan(usize, fitnesses.len);
+    const idx_win = if (fitnesses[idx1] > fitnesses[idx2]) idx1 else idx2;
+    return idx_win;
+}
+
+/// Populate `new_population` using binary tournament.
 fn aggSeleccion(
     population: *const [N_POPULATION][]f64,
     fitnesses: *const [N_POPULATION]f64,
@@ -79,13 +89,12 @@ fn aggSeleccion(
     rnd: Random,
 ) void {
     for (new_population) |element| {
-        const idx1 = rnd.uintLessThan(usize, population.len);
-        const idx2 = rnd.uintLessThan(usize, population.len);
-        const idx_win = if (fitnesses[idx1] > fitnesses[idx2]) idx1 else idx2;
-        std.mem.copy(f64, element, population[idx_win]);
+        const i = binaryTournament(fitnesses, rnd);
+        std.mem.copy(f64, element, population[i]);
     }
 }
 
+/// Cross `N_CROSS_PAIRS` in `new_population` using `cross_fn`.
 fn aggCruce(
     new_population: *const [N_POPULATION][]f64,
     comptime cross_fn: CrossFn,
@@ -98,6 +107,7 @@ fn aggCruce(
     }
 }
 
+/// Mutate `N_MUTATIONS` elements of `new_population`.
 fn aggMutacion(
     new_population: *const [N_POPULATION][]f64,
     rnd: Random,
@@ -110,14 +120,16 @@ fn aggMutacion(
     }
 }
 
-fn aggReemplazamiento(
+/// Replaces worst solution in `new_population` with best solution in
+/// `population`, updating its fitness.
+fn aggElitismo(
     population: *const [N_POPULATION][]f64,
     fitnesses: *const [N_POPULATION]f64,
     new_population: *const [N_POPULATION][]f64,
     new_fitnesses: *[N_POPULATION]f64,
-    training_set: []const Example,
 ) void {
-    utils.getFitnesses(new_population, training_set, new_fitnesses);
+    // Find index of solution with min fitness in `new_population`, and max
+    // fitness in `population`
     var new_min_fitness_idx: usize = 0;
     var old_max_fitness_idx: usize = 0;
     for (new_fitnesses, fitnesses, 0..) |new_fitness, fitness, i| {
@@ -126,6 +138,8 @@ fn aggReemplazamiento(
         if (fitness > fitnesses[old_max_fitness_idx])
             old_max_fitness_idx = i;
     }
+
+    // Replace the worst in `new_population` with the best in `population`
     std.mem.copy(f64, new_population[new_min_fitness_idx], population[old_max_fitness_idx]);
     new_fitnesses[new_min_fitness_idx] = fitnesses[old_max_fitness_idx];
 }
@@ -139,7 +153,9 @@ const MemeticType = enum {
 
 const MAX_EVALUATIONS = 15000;
 
-fn aggBusquedaLocal(
+/// Perform local search on a subset of `new_population` according to
+/// `memetic_type`, updating `new_fitnesses` and `evaluations`.
+fn memeticBusquedaLocal(
     training_set: []const Example,
     new_population: *[N_POPULATION][]f64,
     new_fitnesses: *[N_POPULATION]f64,
@@ -154,24 +170,28 @@ fn aggBusquedaLocal(
         .None => unreachable,
     };
 
-    // TODO: aqui estamos aprovechando que new_population ya esta ordenada
-    // aleatoriamente, para que en el caso de .Rand podamos coger simplemente
-    // los N_BL primeros.
     if (memetic_type == .Best) {
-        utils.getFitnesses(new_population, training_set, new_fitnesses);
         sortPopulation(new_population, new_fitnesses);
+    } else if (memetic_type == .Rand) {
+        // Place subset_size random items at the beginning. Those are the ones
+        // we'll be performing local search on.
+        for (0..subset_size) |i| {
+            const i_rnd = rnd.uintLessThan(usize, new_population.len);
+            std.mem.swap(f64, &new_fitnesses[i], &new_fitnesses[i_rnd]);
+            std.mem.swap([]f64, &new_population[i], &new_population[i_rnd]);
+        }
     }
+
+    // Perform local search on the first subset_size elements, updating
+    // fitnesses and evaluations
     for (new_population[0..subset_size], new_fitnesses[0..subset_size]) |element, *fitness| {
         const result = try busquedaLocal(element, training_set, allocator, rnd, .{
             .max_iters = std.math.maxInt(usize), // unlimited
             .max_neighbours_per_attribute = 2,
         });
-        if (memetic_type == .Best) {
-            // utils.print("{d} -> {d}\n", .{fitness.*, result.fitness});
-            std.debug.assert(fitness.* <= result.fitness);
-            fitness.* = result.fitness;
-        }
-        evaluations.* += result.iters;
+        std.debug.assert(fitness.* <= result.fitness);
+        fitness.* = result.fitness;
+        evaluations.* += result.evaluations;
         if (evaluations.* >= MAX_EVALUATIONS)
             break;
     }
@@ -213,18 +233,23 @@ fn agg_aux(
 
     var evaluations: usize = population.len; // we have already done one round of evaluations
     while (evaluations < MAX_EVALUATIONS) {
-        // Seleccion
+        // Seleccion: populates `new_population` with elements of `population`
         aggSeleccion(population, fitnesses, new_population, rnd);
 
-        // Cruce
+        // Cruce: crosses elements of `new_population`
         aggCruce(new_population, cross_fn, rnd);
 
-        // Mutacion
+        // Mutacion: mutates elements of `new_population`
         aggMutacion(new_population, rnd);
 
-        // Busqueda local para algoritmos memeticos
+        // Evaluate `new_population`
+        utils.getFitnesses(new_population, training_set, new_fitnesses);
+        evaluations += new_population.len;
+
+        // Local search for memetic algorithms: improves a subset of the
+        // solutions in `new_population` using local search
         if (memetic_type != .None and (generations % 10) == 0) {
-            try aggBusquedaLocal(
+            try memeticBusquedaLocal(
                 training_set,
                 new_population,
                 new_fitnesses,
@@ -235,11 +260,11 @@ fn agg_aux(
             );
         }
 
-        // Reemplazamiento
-        aggReemplazamiento(population, fitnesses, new_population, new_fitnesses, training_set);
-        evaluations += new_population.len;
+        // Elitismo: replace worst solution in `new_population` with best
+        // solution in `population`
+        aggElitismo(population, fitnesses, new_population, new_fitnesses);
 
-        // Make new_population the current population
+        // Reemplazaiento: make new_population the current population
         std.mem.swap(*[N_POPULATION][]f64, &population, &new_population);
         std.mem.swap(*[N_POPULATION]f64, &fitnesses, &new_fitnesses);
 
@@ -382,6 +407,7 @@ fn sortPopulation(population: [][]const f64, fitnesses: []f64) void {
     std.sort.insertionSortContext(population.len, &sort_context);
 }
 
+/// Populate `two_elements` using binary tournament twice.
 fn ageSeleccion(
     population: *const [N_POPULATION][]f64,
     fitnesses: *const [N_POPULATION]f64,
@@ -389,21 +415,12 @@ fn ageSeleccion(
     rnd: Random,
 ) void {
     for (0..2) |i| {
-        const idx1 = rnd.uintLessThan(usize, population.len);
-        const idx2 = rnd.uintLessThan(usize, population.len);
-        const idx_win = if (fitnesses[idx1] > fitnesses[idx2]) idx1 else idx2;
+        const idx_win = binaryTournament(fitnesses, rnd);
         std.mem.copy(f64, two_elements[i], population[idx_win]);
     }
 }
 
-fn ageCruce(
-    two_elements: *const [2][]f64,
-    comptime cross_fn: CrossFn,
-    rnd: Random,
-) void {
-    cross_fn(two_elements[0], two_elements[1], rnd);
-}
-
+/// Cross `two_elements` with a probability of `PROB_MUTATION`.
 fn ageMutacion(
     two_elements: *const [2][]f64,
     rnd: Random,
@@ -417,6 +434,7 @@ fn ageMutacion(
     }
 }
 
+/// Keep best two among `two_elements` and worst two elements of `population`.
 fn ageReemplazamiento(
     population: *[N_POPULATION][]f64,
     fitnesses: *[N_POPULATION]f64,
@@ -426,6 +444,8 @@ fn ageReemplazamiento(
     var two_fitnesses: [2]f64 = undefined;
     utils.getFitnesses(two_elements, training_set, &two_fitnesses);
 
+    // Population is in ascending order according to their fitnesses, so worst
+    // two are first two
     var four_elements = [4][]f64{ population[0], population[1], two_elements[0], two_elements[1] };
     var four_fitnesses = [4]f64{ fitnesses[0], fitnesses[1], two_fitnesses[0], two_fitnesses[1] };
     sortPopulation(&four_elements, &four_fitnesses);
@@ -474,22 +494,23 @@ fn age_aux(
 
     // Get fitness of current population and sort it according to it
     utils.getFitnesses(&population, training_set, &fitnesses);
-
     sortPopulation(&population, &fitnesses);
 
     var evaluations: usize = population.len; // we have already done one round of evaluations
-    while (evaluations < MAX_EVALUATIONS) : (evaluations += 2) {
-        // Seleccion
+    while (evaluations < MAX_EVALUATIONS) {
+        // Seleccion: populates `two_elements`
         ageSeleccion(&population, &fitnesses, &two_elements, rnd);
 
-        // Cruce
-        ageCruce(&two_elements, cross_fn, rnd);
+        // Cruce: cross `two_elements`
+        cross_fn(two_elements[0], two_elements[1], rnd);
 
         // Mutacion
         ageMutacion(&two_elements, rnd);
 
-        // Reemplazamiento. No need to copy contents here
+        // Reemplazamiento: keep best two among `two_elements` and worst two of
+        // `population`
         ageReemplazamiento(&population, &fitnesses, &two_elements, training_set);
+        evaluations += 2;
     }
 
     // Return the element with highest fitness
