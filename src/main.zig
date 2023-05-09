@@ -23,25 +23,40 @@ const AlgorithmResult = struct {
 const Args = struct {
     seed: ?usize,
     dataset: ?[]const u8,
+    n_threads: ?u32,
 };
 
 fn showArgsHelp() void {
     print(
         \\Usage:
-        \\    p1 [-h] [-s] dataset
+        \\    p1 [-h] [-s seed] [-j jobs] dataset
         \\
         \\Available options:
         \\    -h, --help      Display this help and exit.
         \\    -s, --seed <n>  The seed to use for random number generation.
+        \\    -j, --jobs <n>  The number of threads to use. Default is number of threads available.
         \\    dataset         The dataset to use: diabetes, ozone-320, or spectf-heart.
         \\
     , .{});
+}
+
+fn parseNumericArg(comptime T: type, arg_name: []const u8, arg_value: ?[]const u8) ?T {
+    const value_str = arg_value orelse {
+        print("Argument '{s}' specified, but no seed was provided\n\n", .{arg_name});
+        return null;
+    };
+    const value_n = std.fmt.parseInt(T, value_str, 0) catch |err| {
+        print("Failed to parse seed argument '{s}' with {}\n\n", .{ value_str, err });
+        return null;
+    };
+    return value_n;
 }
 
 fn parseArgs() ?Args {
     var args = Args{
         .seed = null,
         .dataset = null,
+        .n_threads = null,
     };
 
     var args_it = std.process.args();
@@ -50,15 +65,9 @@ fn parseArgs() ?Args {
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             return null;
         } else if (std.mem.eql(u8, arg, "--seed") or std.mem.eql(u8, arg, "-s")) {
-            const arg_seed = args_it.next() orelse {
-                print("Argument '{s}' specified, but no seed was provided\n\n", .{arg});
-                return null;
-            };
-            const seed = std.fmt.parseInt(usize, arg_seed, 0) catch |err| {
-                print("Failed to parse seed argument '{s}' with {}\n\n", .{ arg_seed, err });
-                return null;
-            };
-            args.seed = seed;
+            args.seed = parseNumericArg(usize, arg, args_it.next()) orelse return null;
+        } else if (std.mem.eql(u8, arg, "--jobs") or std.mem.eql(u8, arg, "-j")) {
+            args.n_threads = parseNumericArg(u32, arg, args_it.next()) orelse return null;
         } else {
             if (std.mem.startsWith(u8, arg, "-")) {
                 print("Unknown argument '{s}'\n\n", .{arg});
@@ -104,7 +113,7 @@ pub fn main() !void {
     var rng = std.rand.DefaultPrng.init(rng_seed);
     const rnd = rng.random();
 
-    const n_threads = try utils.initThreadPool(allocator);
+    const n_threads = try utils.initThreadPool(allocator, args.n_threads);
     defer utils.deinitThreadPool();
     print("Number of threads: {}\n", .{n_threads});
 

@@ -68,6 +68,57 @@ pub const Example = struct {
         }
         return ret;
     }
+
+    const SIMD_LENGTH = std.simd.suggestVectorSize(f64) orelse 4;
+    const SimdType = @Vector(SIMD_LENGTH, f64);
+    const MIN_WEIGHT_SIMD = @splat(SIMD_LENGTH, @as(f64, MIN_WEIGHT));
+
+    fn simdLength(comptime T: type) comptime_int {
+        return @typeInfo(T).Vector.len;
+    }
+
+    fn loadSimd(mem: [*]const f64) SimdType {
+        var result = @splat(SIMD_LENGTH, @as(f64, 0.0));
+        comptime var i: usize = 0;
+        inline while (i < SIMD_LENGTH) : (i += 1) {
+            result[i] = mem[i];
+        }
+        return result;
+    }
+
+    pub fn distanceWeightedSimd(self: Example, other: Example, w: []const f64) f64 {
+        return distanceWeightedSimdRaw(w.len, self.attributes.ptr, other.attributes.ptr, w.ptr);
+    }
+
+    fn distanceWeightedSimdRaw(
+        n: usize,
+        noalias attributes1: [*]const f64,
+        noalias attributes2: [*]const f64,
+        noalias w: [*]const f64,
+    ) f64 {
+        var ret: f64 = 0;
+        var i: usize = 0;
+        while (i < n) : (i += SIMD_LENGTH) {
+            // Load values from memory
+            const attrs1 = loadSimd(attributes1 + i);
+            const attrs2 = loadSimd(attributes2 + i);
+            const weights = loadSimd(w + i);
+
+            // Create a vector of booleans indicating whether each weight is
+            // discarded or not
+            const discarded_weights = weights < MIN_WEIGHT_SIMD;
+
+            // Create a vector that has 0 for discarded weights, and the
+            // original weight for the rest
+            const zeroes = @splat(SIMD_LENGTH, @as(f64, 0));
+            const final_weights = @select(f64, discarded_weights, zeroes, weights);
+
+            const dist = attrs1 - attrs2;
+            const values = dist * dist * final_weights;
+            ret += @reduce(.Add, values);
+        }
+        return ret;
+    }
 };
 
 fn readExamplesFromFile(filename: []const u8, allocator: Allocator) ![]Example {
@@ -337,10 +388,10 @@ test "tasaRed 100" {
 var g_thread_pool: std.Thread.Pool = undefined;
 var g_thread_results: []usize = undefined;
 
-pub fn initThreadPool(allocator: Allocator) !usize {
+pub fn initThreadPool(allocator: Allocator, n_threads_arg: ?u32) !usize {
     try g_thread_pool.init(.{
         .allocator = allocator,
-        .n_jobs = null,
+        .n_jobs = n_threads_arg,
     });
     const n_threads = g_thread_pool.threads.len;
     g_thread_results = try allocator.alloc(usize, n_threads);
@@ -423,7 +474,11 @@ fn classifier1NN(e: Example, set: []const Example, skip_idx: ?usize, w: []const 
     for (set, 0..) |example, i| {
         if (skip_idx == i)
             continue;
-        const dist = e.distanceWeighted(example, w);
+        const dist = e.distanceWeightedSimd(example, w);
+        // const dist2 = e.distanceWeighted(example, w);
+        // if (!std.math.approxEqRel(f64, dist, dist2, std.math.sqrt(std.math.floatEps(f64)))) {
+        //     print("{d} {d}\n", .{dist, dist2});
+        // }
         if (dist < dist_min) {
             dist_min = dist;
             class_min = example.class;
