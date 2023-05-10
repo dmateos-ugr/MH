@@ -98,7 +98,11 @@ pub const Example = struct {
     ) f64 {
         var ret: f64 = 0;
         var i: usize = 0;
-        while (i < n) : (i += SIMD_LENGTH) {
+        const n_sequentially = n % SIMD_LENGTH;
+        const n_in_chunks = n - n_sequentially;
+
+        // Process attributes in chunks of SIMD_LENGTH
+        while (i < n_in_chunks) : (i += SIMD_LENGTH) {
             // Load values from memory
             const attrs1 = loadSimd(attributes1 + i);
             const attrs2 = loadSimd(attributes2 + i);
@@ -117,6 +121,17 @@ pub const Example = struct {
             const values = dist * dist * final_weights;
             ret += @reduce(.Add, values);
         }
+
+        // Process the rest sequentially
+        if (n_sequentially > 0) {
+            ret += distanceWeightedRaw(
+                n_sequentially,
+                attributes1 + n_in_chunks,
+                attributes2 + n_in_chunks,
+                w + n_in_chunks,
+            );
+        }
+
         return ret;
     }
 };
@@ -272,6 +287,24 @@ pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []con
     return getFitnessData(w, test_set, training_set).fitness;
 }
 
+var g_thread_pool: std.Thread.Pool = undefined;
+var g_thread_results: []usize = undefined;
+
+pub fn initThreadPool(allocator: Allocator, n_threads_arg: ?u32) !usize {
+    try g_thread_pool.init(.{
+        .allocator = allocator,
+        .n_jobs = n_threads_arg,
+    });
+    const n_threads = g_thread_pool.threads.len;
+    g_thread_results = try allocator.alloc(usize, n_threads);
+    return n_threads;
+}
+
+pub fn deinitThreadPool() void {
+    g_thread_pool.allocator.free(g_thread_results);
+    g_thread_pool.deinit();
+}
+
 pub const tasaClas = tasaClasParallel;
 // pub const tasaClas = tasaClasSequential;
 
@@ -385,28 +418,7 @@ test "tasaRed 100" {
     // print("{}\n", .{tasa_red});
 }
 
-var g_thread_pool: std.Thread.Pool = undefined;
-var g_thread_results: []usize = undefined;
-
-pub fn initThreadPool(allocator: Allocator, n_threads_arg: ?u32) !usize {
-    try g_thread_pool.init(.{
-        .allocator = allocator,
-        .n_jobs = n_threads_arg,
-    });
-    const n_threads = g_thread_pool.threads.len;
-    g_thread_results = try allocator.alloc(usize, n_threads);
-    return n_threads;
-}
-
-pub fn deinitThreadPool() void {
-    g_thread_pool.allocator.free(g_thread_results);
-    g_thread_pool.deinit();
-}
-
-// pub const getFitnesses = getFitnessesParallel;
-pub const getFitnesses = getFitnessesSequential;
-
-pub fn getFitnessesSequential(
+pub fn getFitnesses(
     solutions: []const []const f64,
     training_set: []const Example,
     fitnesses: []f64,
@@ -414,58 +426,6 @@ pub fn getFitnessesSequential(
     for (solutions, fitnesses) |w, *fitness| {
         fitness.* = getFitness(w, training_set, training_set);
     }
-}
-
-// This can't be used together with the parallel version of tasaClas
-pub fn getFitnessesParallel(
-    solutions: []const []const f64,
-    training_set: []const Example,
-    fitnesses: []f64,
-) void {
-    var wait_group = std.Thread.WaitGroup{};
-    var n_threads = g_thread_pool.threads.len;
-    var size = solutions.len / n_threads;
-    if (size == 0) {
-        size = 1;
-        n_threads = solutions.len;
-    }
-
-    // Launch threads
-    for (0..n_threads) |i| {
-        const start_idx = size * i;
-        const end_idx = if (i == n_threads - 1) solutions.len else size * (i + 1);
-        // print("thread {}: {}-{}\n", .{ i, start_idx, end_idx });
-        wait_group.start();
-        g_thread_pool.spawn(workerGetFitnesses, .{
-            solutions,
-            training_set,
-            fitnesses,
-            start_idx,
-            end_idx,
-            &wait_group,
-        }) catch unreachable;
-    }
-
-    // Wait for them to finish
-    g_thread_pool.waitAndWork(&wait_group);
-
-    for (fitnesses) |fitness| {
-        std.debug.assert(0 <= fitness and fitness <= 100);
-    }
-}
-
-fn workerGetFitnesses(
-    solutions: []const []const f64,
-    training_set: []const Example,
-    fitnesses: []f64,
-    start_idx: usize,
-    end_idx: usize,
-    waiting_group: *std.Thread.WaitGroup,
-) void {
-    for (solutions[start_idx..end_idx], fitnesses[start_idx..end_idx]) |w, *fitness| {
-        fitness.* = getFitness(w, training_set, training_set);
-    }
-    waiting_group.finish();
 }
 
 fn classifier1NN(e: Example, set: []const Example, skip_idx: ?usize, w: []const f64) []const u8 {
@@ -485,10 +445,4 @@ fn classifier1NN(e: Example, set: []const Example, skip_idx: ?usize, w: []const 
         }
     }
     return class_min;
-}
-
-comptime {
-    const is_tasaClas_parallel = tasaClas == tasaClasParallel;
-    const is_getFitnesses_parallel = getFitnesses == getFitnessesParallel;
-    std.debug.assert(!(is_tasaClas_parallel and is_getFitnesses_parallel));
 }
