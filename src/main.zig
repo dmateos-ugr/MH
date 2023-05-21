@@ -186,7 +186,7 @@ test {
 test {
     const allocator = std.testing.allocator;
 
-    _ =try utils.initThreadPool(allocator);
+    _ = try utils.initThreadPool(allocator, null);
     defer utils.deinitThreadPool();
 
     const partitions = try utils.readPartitions("diabetes", allocator);
@@ -198,7 +198,7 @@ test {
 
     const w = try allocator.alloc(f64, training_set[0].attributes.len);
     defer allocator.free(w);
-    std.mem.set(f64, w, 0);
+    @memset(w, 0);
 
     const tasa_clas = utils.tasaClas(w, test_set, training_set);
 

@@ -44,13 +44,6 @@ pub const Example = struct {
     }
 
     pub fn distanceWeighted(self: Example, other: Example, w: []const f64) f64 {
-        // var ret: f64 = 0;
-        // for (self.attributes, other.attributes, w) |attr1, attr2, weight| {
-        //     if (weight < MIN_WEIGHT) continue;
-        //     const dist = attr1 - attr2;
-        //     ret += dist * dist * weight;
-        // }
-        // return ret;
         return distanceWeightedRaw(w.len, self.attributes.ptr, other.attributes.ptr, w.ptr);
     }
 
@@ -72,10 +65,6 @@ pub const Example = struct {
     const SIMD_LENGTH = std.simd.suggestVectorSize(f64) orelse 4;
     const SimdType = @Vector(SIMD_LENGTH, f64);
     const MIN_WEIGHT_SIMD = @splat(SIMD_LENGTH, @as(f64, MIN_WEIGHT));
-
-    fn simdLength(comptime T: type) comptime_int {
-        return @typeInfo(T).Vector.len;
-    }
 
     fn loadSimd(mem: [*]const f64) SimdType {
         var result = @splat(SIMD_LENGTH, @as(f64, 0.0));
@@ -287,6 +276,7 @@ pub fn getFitness(w: []const f64, test_set: []const Example, training_set: []con
     return getFitnessData(w, test_set, training_set).fitness;
 }
 
+var g_thread_pool_inited = false;
 var g_thread_pool: std.Thread.Pool = undefined;
 var g_thread_results: []usize = undefined;
 
@@ -297,12 +287,14 @@ pub fn initThreadPool(allocator: Allocator, n_threads_arg: ?u32) !usize {
     });
     const n_threads = g_thread_pool.threads.len;
     g_thread_results = try allocator.alloc(usize, n_threads);
+    g_thread_pool_inited = true;
     return n_threads;
 }
 
 pub fn deinitThreadPool() void {
     g_thread_pool.allocator.free(g_thread_results);
     g_thread_pool.deinit();
+    g_thread_pool_inited = false;
 }
 
 pub const tasaClas = tasaClasParallel;
@@ -327,6 +319,8 @@ pub fn tasaClasSequential(w: []const f64, test_set: []const Example, training_se
 
 // This can't be used together with the parallel version of getFitnesses
 pub fn tasaClasParallel(w: []const f64, test_set: []const Example, training_set: []const Example) f64 {
+    std.debug.assert(g_thread_pool_inited);
+
     // This is a pointer and length comparison. Doesn't work if test_set is a
     // *copy* of training_set, instead of the same slice, but works for now.
     const leave_one_out = std.meta.eql(test_set, training_set);
@@ -339,7 +333,7 @@ pub fn tasaClasParallel(w: []const f64, test_set: []const Example, training_set:
         n_threads = test_set.len;
     }
 
-    for (g_thread_results) |*result| {
+    for (g_thread_results[0..n_threads]) |*result| {
         result.* = std.math.maxInt(usize);
     }
 
@@ -364,13 +358,10 @@ pub fn tasaClasParallel(w: []const f64, test_set: []const Example, training_set:
     // Wait for them to finish
     g_thread_pool.waitAndWork(&wait_group);
 
-    for (g_thread_results) |*result| {
-        std.debug.assert(result.* != std.math.maxInt(usize));
-    }
-
     // Compute final result
     var well_classified: usize = 0;
-    for (g_thread_results) |result| {
+    for (g_thread_results[0..n_threads]) |result| {
+        std.debug.assert(result != std.math.maxInt(usize));
         well_classified += result;
     }
     return 100.0 * @intToFloat(f64, well_classified) / @intToFloat(f64, test_set.len);
@@ -412,7 +403,7 @@ pub fn tasaRed(weights: []const f64) f64 {
 test "tasaRed 100" {
     const w = try std.testing.allocator.alloc(f64, 8);
     defer std.testing.allocator.free(w);
-    std.mem.set(f64, w, 0);
+    @memset(w, 0);
     const tasa_red = tasaRed(w);
     try std.testing.expectEqual(@as(f64, 100), tasa_red);
     // print("{}\n", .{tasa_red});

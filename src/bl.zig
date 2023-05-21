@@ -75,7 +75,7 @@ pub fn busquedaLocal(
     training_set: []const Example,
     allocator: Allocator,
     rnd: Random,
-    config: LocalSearchConfig, // TODO probar a poner comptime
+    config: LocalSearchConfig,
 ) !LocalSearchResult {
     const n = w.len;
     const max_neighbours = config.max_neighbours_per_attribute * n;
@@ -95,7 +95,7 @@ pub fn busquedaLocal(
     var iters: usize = 0;
     while (neighbours < max_neighbours and iters < config.max_iters) : (iters += 1) {
         // Mutate w into w_mut
-        std.mem.copy(f64, w_mut, w);
+        @memcpy(w_mut, w);
         utils.mov(w_mut, indexes.next(), rnd);
 
         // Evaluate w_mut, classifying every example in training_set using leave-one-out
@@ -103,7 +103,7 @@ pub fn busquedaLocal(
         if (fitness > current_fitness) {
             // Replace w with w_mut
             current_fitness = fitness;
-            std.mem.copy(f64, w, w_mut);
+            @memcpy(w, w_mut);
             indexes.reset();
             neighbours = 0;
         } else neighbours += 1;

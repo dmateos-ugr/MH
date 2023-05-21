@@ -16,7 +16,7 @@ pub fn greedy(training_set: []const Example, allocator: Allocator, rnd: Random) 
     // First solution
     const w = try allocator.alloc(f64, n);
     errdefer allocator.free(w);
-    std.mem.set(f64, w, 0);
+    @memset(w, 0);
 
     for (training_set, 0..) |example, i_example| {
         // Get the closest enemy and closest friend to `example`
@@ -64,6 +64,6 @@ pub fn algOriginal1NN(training_set: []const Example, allocator: Allocator, rnd: 
     // The original 1NN algorithm simply uses a vector of weights set to 1.0
     const n = training_set[0].attributes.len;
     const w = try allocator.alloc(f64, n);
-    std.mem.set(f64, w, 1.0);
+    @memset(w, 1.0);
     return w;
 }
