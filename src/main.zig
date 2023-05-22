@@ -3,6 +3,7 @@ const utils = @import("utils.zig");
 const ref_algorithms = @import("ref_algorithms.zig");
 const busquedaLocalP1 = @import("bl.zig").busquedaLocalP1;
 const genetic = @import("genetic.zig");
+const trayectorias = @import("trayectorias.zig");
 const Random = std.rand.Random;
 const Allocator = std.mem.Allocator;
 const Example = utils.Example;
@@ -124,6 +125,7 @@ pub fn main() !void {
         // .{ .func = busquedaLocalP1, .name = "BUSQUEDA LOCAL" },
         // .{ .func = ref_algorithms.greedy, .name = "GREEDY" },
         // .{ .func = ref_algorithms.algOriginal1NN, .name = "1NN" },
+        .{ .func = trayectorias.ES, .name = "ES" },
         .{ .func = genetic.AGG_BLX, .name = "AGG BLX" },
         .{ .func = genetic.AGG_Arit, .name = "AGG Arit" },
         .{ .func = genetic.AGE_BLX, .name = "AGE BLX" },
