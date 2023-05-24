@@ -1,0 +1,11 @@
+BMB: hacer BL 15 veces con soluciones aleatorias, 1000 evaluaciones
+
+ILS: en vez de soluciones aleatorias, partir de una mutación de la mejor solución anterior (sin historia). por el pseudocodigo, el bucle se ejecuta 14 veces en vez de 15. esa mutación es resetear el 10% de los atributos (con un mínimo de 2) con un valor aleatorio.
+
+VNS: parecido a ILS, pero ahora las mutaciones de la busqueda local cambian. K es el número de componentes a los que se le aplica MOV dentro de la BL, elegidos de forma aleatoria (no hace falta comprobar que sean diferentes). VNS va incrementando K (haciendo cada vez mutaciones más grandes). sin historia.
+
+enfriamiento simulado: P(dif_fitness, t) = e^(-diff_fitness / t). no usa k. el coste es el fitness. 
+el profe dice que hagamos un solo for en vez de dos bucles anidados. 
+además, dice que no paremos cuando lleguemos a la temperatura final, sino que contemos el número de evaluaciones, como siempre. debido a la mejora de enfriar cuando hay éxitos, puede que nos pasemos de la temperatura final, y no pasa nada. comprobar que se llega exactamente a la final si se quita esta mejora.
+verificar T0 mayor que Tf. si no, dividir Tf por 10 hasta que se cumpla.
+ILS-ES es usar ES en vez de BL.

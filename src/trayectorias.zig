@@ -11,19 +11,17 @@ const LOG_PHI = std.math.ln(PHI);
 const MU = 0.3;
 const FINAL_TEMPERATURE = 1.0e-4;
 
-fn nextTemperature(tk: f64, t0: f64, M: usize) f64 {
-    const beta = (t0 - FINAL_TEMPERATURE) / (@intToFloat(f64, M) * t0 * FINAL_TEMPERATURE);
+fn nextTemperature(tk: f64, beta: f64) f64 {
     return tk / (1 + beta * tk);
-}
-
-fn coste(w: []const f64) f64 {
-    _ = w;
-    // ???
-    return 0;
 }
 
 fn initialTemperature(fitness: f64) f64 {
     return -MU * fitness / LOG_PHI;
+}
+
+fn shouldAcceptWorseSolution(diff_fitness: f64, t: f64, rnd: Random) bool {
+    std.debug.assert(diff_fitness <= 0);
+    return rnd.float(f64) <= std.math.exp(diff_fitness / t);
 }
 
 // Enfriamiento Simulado
@@ -35,7 +33,6 @@ pub fn ES(
     const n = training_set[0].attributes.len;
     const max_vecinos = 10 * n;
     const max_exitos = @floatToInt(usize, 0.1 * @intToFloat(f64, max_vecinos));
-    const M = MAX_EVALUATIONS / max_vecinos;
 
     const w = try utils.createRandomSolution(n, allocator, rnd);
     defer allocator.free(w);
@@ -48,51 +45,50 @@ pub fn ES(
     defer allocator.free(w_mut);
 
     const t0 = initialTemperature(fitness_current);
-    var k: usize = 0;
-
-    var evaluations: usize = 0;
+    const M = MAX_EVALUATIONS / max_vecinos;
+    const beta = (t0 - FINAL_TEMPERATURE) / (@intToFloat(f64, M) * t0 * FINAL_TEMPERATURE);
 
     var t = t0;
-    while (t >= FINAL_TEMPERATURE) : ({
-        t = nextTemperature(t, t0, M);
-        k += 1;
+    var vecinos: usize = 0;
+    var exitos: usize = 0;
+    var evaluations: usize = 0;
+    while (evaluations < MAX_EVALUATIONS) : ({
+        evaluations += 1;
+        vecinos += 1;
     }) {
-        var vecinos: usize = 0;
-        var exitos: usize = 0;
-        while (vecinos < max_vecinos and exitos < max_exitos) : (vecinos += 1) {
-            // Mutate w into w_mut
-            @memcpy(w_mut, w);
-            utils.mov(w_mut, rnd.uintLessThan(usize, n), rnd);
+        // Mutate w into w_mut
+        @memcpy(w_mut, w);
+        utils.mov(w_mut, rnd.uintLessThan(usize, n), rnd);
 
-            const fitness_mut = utils.getFitness(w_mut, training_set, training_set);
-            const diff_fitness = fitness_mut - fitness_current;
-            // if (diff_fitness < 0)
-            //     utils.print("{d}\n", .{std.math.exp(diff_fitness / (@intToFloat(f64, k) * t))});
-            // if (diff_fitness == 0)
-            //     continue;
-            // Casi todos los exitos ocurren cuando diff_fitness=0. suspicious
-            if (diff_fitness > 0 or rnd.float(f64) <= std.math.exp(diff_fitness / (@intToFloat(f64, k) * t))) { // suspicious
-                @memcpy(w, w_mut);
-                fitness_current = fitness_mut;
-                if (fitness_current > fitness_best) {
-                    @memcpy(w_best, w);
-                    fitness_best = fitness_current;
-                }
-                exitos += 1;
+        const fitness_mut = utils.getFitness(w_mut, training_set, training_set);
+        const diff_fitness = fitness_mut - fitness_current;
+        // if (diff_fitness < 0)
+        //     utils.print("{d}\n", .{std.math.exp(diff_fitness / (@intToFloat(f64, k) * t))});
+        // Casi todos los exitos ocurren cuando diff_fitness=0. suspicious
+        if (diff_fitness > 0 or shouldAcceptWorseSolution(diff_fitness, t, rnd)) {
+            @memcpy(w, w_mut);
+            fitness_current = fitness_mut;
+            if (fitness_current > fitness_best) {
+                @memcpy(w_best, w);
+                fitness_best = fitness_current;
             }
-
+            exitos += 1;
         }
-        // en la primera iteracion termina por vecinos, y despues siempre por exitos.
-        // supongo que se mueve a un maximo local donde diff_fitness = 0 siempre.
-        utils.print("{}/{} {}/{}\n", .{vecinos, max_vecinos, exitos, max_exitos});
 
-        evaluations += vecinos;
+        if (vecinos == max_vecinos or exitos == max_exitos) {
+            // Enfriamieno
+            if (exitos == 0)
+                break;
+            t = nextTemperature(t, beta);
+            vecinos = 0;
+            exitos = 0;
 
-        if (exitos == 0)
-            break;
+            // if (t < FINAL_TEMPERATURE)
+            //     utils.print("got at {} evaluations\n", .{evaluations});
+        }
     }
 
-    utils.print("{}\n", .{evaluations});
+    // utils.print("{d} {d}\n", .{t, FINAL_TEMPERATURE});
 
     return w_best;
 }
