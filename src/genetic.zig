@@ -188,7 +188,6 @@ fn memeticBusquedaLocal(
     // fitnesses and evaluations
     for (population[0..subset_size], fitnesses[0..subset_size]) |element, *fitness| {
         const result = try busquedaLocal(element, training_set, allocator, rnd, .{
-            .max_iters = std.math.maxInt(usize), // unlimited
             .max_neighbours_per_attribute = 2,
         });
         std.debug.assert(fitness.* <= result.fitness);

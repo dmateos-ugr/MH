@@ -59,8 +59,9 @@ pub fn busquedaLocalP1(training_set: []const Example, allocator: Allocator, rnd:
 }
 
 const LocalSearchConfig = struct {
-    max_iters: usize,
-    max_neighbours_per_attribute: usize,
+    max_iters: ?usize = null,
+    max_neighbours_per_attribute: ?usize = null,
+    num_attributes_mutated: usize = 1,
 };
 
 const LocalSearchResult = struct {
@@ -78,7 +79,12 @@ pub fn busquedaLocal(
     config: LocalSearchConfig,
 ) !LocalSearchResult {
     const n = w.len;
-    const max_neighbours = config.max_neighbours_per_attribute * n;
+    const max_neighbours = if (config.max_neighbours_per_attribute) |max|
+        max * n
+    else
+        std.math.maxInt(usize);
+    const max_iters = config.max_iters orelse std.math.maxInt(usize);
+    std.debug.assert(max_iters != std.math.maxInt(usize) or max_neighbours != std.math.maxInt(usize));
 
     // First solution
     var current_fitness = utils.getFitness(w, training_set, training_set);
@@ -93,10 +99,12 @@ pub fn busquedaLocal(
 
     var neighbours: usize = 0;
     var iters: usize = 0;
-    while (neighbours < max_neighbours and iters < config.max_iters) : (iters += 1) {
+    while (neighbours < max_neighbours and iters < max_iters) : (iters += 1) {
         // Mutate w into w_mut
         @memcpy(w_mut, w);
-        utils.mov(w_mut, indexes.next(), rnd);
+        for (0..config.num_attributes_mutated) |_| {
+            utils.mov(w_mut, indexes.next(), rnd);
+        }
 
         // Evaluate w_mut, classifying every example in training_set using leave-one-out
         const fitness = utils.getFitness(w_mut, training_set, training_set);
