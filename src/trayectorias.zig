@@ -16,12 +16,15 @@ fn nextTemperature(tk: f64, beta: f64) f64 {
 }
 
 fn initialTemperature(fitness: f64) f64 {
-    return -MU * fitness / LOG_PHI;
+    var result = -MU * fitness / LOG_PHI;
+    while (result <= FINAL_TEMPERATURE) {
+        result *= 10;
+    }
+    return result;
 }
 
 fn shouldAcceptWorseSolution(diff_fitness: f64, t: f64, rnd: Random) bool {
     std.debug.assert(diff_fitness <= 0);
-    // utils.print("{d} {d} {d}\n", .{t, diff_fitness, std.math.exp(diff_fitness / t)});
     return rnd.float(f64) <= std.math.exp(diff_fitness / t);
 }
 
@@ -75,8 +78,6 @@ fn enfriamientoSimulado(
 
         const fitness_mut = utils.getFitness(w_mut, training_set, training_set);
         const diff_fitness = fitness_mut - fitness_current;
-        // Casi todos los exitos ocurren cuando diff_fitness=0. suspicious
-        // la temperatura pasa de 12.71 a 0.00199 en el primer enfriamiento
         if (diff_fitness > 0 or shouldAcceptWorseSolution(diff_fitness, t, rnd)) {
             @memcpy(w, w_mut);
             fitness_current = fitness_mut;
@@ -88,20 +89,15 @@ fn enfriamientoSimulado(
         }
 
         if (vecinos == max_vecinos or exitos == max_exitos) {
-            // utils.print("{}/{} {}/{}\n", .{vecinos, max_vecinos, exitos, max_exitos});
             // Enfriamiento
             if (exitos == 0)
                 break;
             t = nextTemperature(t, beta);
             vecinos = 0;
             exitos = 0;
-
-            // if (t < FINAL_TEMPERATURE)
-            //     utils.print("got at {} evaluations\n", .{evaluations});
         }
     }
 
-    // utils.print("{d} {d}\n", .{t, FINAL_TEMPERATURE});
     return fitness_best;
 }
 
@@ -183,21 +179,21 @@ pub fn ILS_ES(
 
 fn ils(
     training_set: []const Example,
-    comptime blFn: fn ([]f64, []const Example, Allocator, Random) Allocator.Error!f64,
+    comptime bl_fn: fn ([]f64, []const Example, Allocator, Random) Allocator.Error!f64,
     allocator: Allocator,
     rnd: Random,
 ) ![]const f64 {
     const n = training_set[0].attributes.len;
     const w = try utils.createRandomSolution(n, allocator, rnd);
     defer allocator.free(w);
-    var fitness_best = try blFn(w, training_set, allocator, rnd);
+    var fitness_best = try bl_fn(w, training_set, allocator, rnd);
     const w_best = try allocator.dupe(f64, w);
 
     for (0..14) |_| {
         @memcpy(w, w_best);
         ilsMut(w, rnd);
 
-        const fitness = try blFn(w, training_set, allocator, rnd);
+        const fitness = try bl_fn(w, training_set, allocator, rnd);
         if (fitness > fitness_best) {
             @memcpy(w_best, w);
             fitness_best = fitness;
